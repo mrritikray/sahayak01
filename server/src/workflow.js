@@ -122,7 +122,14 @@ export async function sendReminder(doseId) {
     }
   });
   tx();
-  return { ok: result.status !== 'failed', mode: result.mode, status: result.status };
+  return {
+    ok: result.status !== 'failed',
+    mode: result.mode,
+    status: result.status,
+    whatsappUrl: result.whatsappUrl,
+    messageText: text + buttons,
+    recipientPhone: patient.phone,
+  };
 }
 
 // ---- Steps B & C: patient responses --------------------------------------
@@ -162,7 +169,11 @@ export async function processResponse(token, source = 'link') {
       `INSERT INTO notification_logs (dose_id, patient_id, family_id, kind, recipient_phone, status, mode, created_at)
        VALUES (?, ?, 0, 'PATIENT_CONFIRMATION', ?, 'recorded', ?, ?)`
     ).run(t.dose_id, dose.patient_id, patient.phone, getMode(), nowIso());
-    return { ok: true, action, late, doseId: t.dose_id };
+    return {
+      ok: true, action, late, doseId: t.dose_id,
+      medicineName: dose.medicine_name, dosage: dose.dosage,
+      patientName: patient.full_name, patientPhone: patient.phone,
+    };
   }
 
   // Step C: NOT_TAKEN — alert all configured, authorised family members now.
@@ -187,7 +198,11 @@ export async function processResponse(token, source = 'link') {
       console.error(`[workflow] family alert failed for member ${f.id}: ${e.message}`);
     }
   }
-  return { ok: true, action, late, doseId: t.dose_id, familyNotified: fam.length };
+  return {
+    ok: true, action, late, doseId: t.dose_id, familyNotified: fam.length,
+    medicineName: dose.medicine_name, dosage: dose.dosage,
+    patientName: patient.full_name, patientPhone: patient.phone,
+  };
 }
 
 // ---- Step D: no-response timeout -----------------------------------------

@@ -18,6 +18,7 @@ export const config = {
   maxReminderAttempts: Number(env('MAX_REMINDER_ATTEMPTS', '3')),
   retryBackoffSeconds: Number(env('RETRY_BACKOFF_SECONDS', '60')),
   publicBaseUrl: env('PUBLIC_BASE_URL', 'http://localhost:4000'),
+  defaultWhatsappPhone: env('DEFAULT_WHATSAPP_PHONE', '+917987237184'),
   whatsapp: {
     accessToken: env('WHATSAPP_ACCESS_TOKEN'),
     phoneNumberId: env('WHATSAPP_PHONE_NUMBER_ID'),

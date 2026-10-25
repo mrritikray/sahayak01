@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import { getDb, nowIso, audit, getSetting, setSetting } from './db.js';
 import { config, whatsappConfigured } from './config.js';
 import { requireAuth, login, logout, rateLimit, ensureAdmin } from './auth.js';
-import { isValidPhone, normalisePhone, renderTemplate, templateVariables } from './util.js';
+import { isValidPhone, normalisePhone, renderTemplate, templateVariables, buildWhatsappUrl } from './util.js';
 import { z } from 'zod';
 import {
   integrationStatus, getMode, recordInbound, updateMessageStatus, testConnection, sendMessage,
@@ -11,6 +11,160 @@ import {
 import {
   startScheduler, stopScheduler, sendReminder, processResponse, processTimeouts, tick,
 } from './workflow.js';
+
+export function renderResponseSuccessHtml({ action, late, doseId, message, patientName, medicineName, dosage, whatsappNumber }) {
+  const isTaken = action === 'TAKEN';
+  const badgeColor = isTaken ? '#38a169' : '#e53e3e';
+  const badgeBg = isTaken ? '#f0fff4' : '#fff5f5';
+  const icon = isTaken ? '✅' : '⚠️';
+  const title = isTaken ? 'Dose Confirmed as TAKEN' : 'Dose Marked as NOT TAKEN';
+  const statusText = isTaken
+    ? 'Your medicine dose has been marked as TAKEN. Great job maintaining your health schedule!'
+    : 'Your medicine dose has been recorded as NOT TAKEN. Your registered family members have been alerted.';
+
+  const cleanPhone = String(whatsappNumber || '917987237184').replace(/[^\d]/g, '');
+  const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(`Dose confirmation recorded for ${medicineName || 'medicine'}: ${action}`)}`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title} | SAHAYAK</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f0f4f8; color: #2d3748; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+    .card { background: #ffffff; max-width: 480px; width: 100%; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.06); overflow: hidden; text-align: center; }
+    .header { background: #2c7a7b; color: #ffffff; padding: 22px 20px; font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
+    .content { padding: 30px 24px; }
+    .status-icon { font-size: 52px; margin-bottom: 14px; }
+    .badge { display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 700; background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeColor}; margin-bottom: 14px; }
+    h2 { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #1a202c; }
+    p { font-size: 15px; color: #4a5568; line-height: 1.6; margin-bottom: 18px; }
+    .details { background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px; margin-bottom: 22px; text-align: left; font-size: 14px; }
+    .details-row { display: flex; justify-content: space-between; padding: 4px 0; }
+    .details-label { color: #718096; }
+    .details-val { font-weight: 600; color: #2d3748; }
+    .btn-wa { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 14px; border-radius: 10px; background: #25D366; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; transition: background 0.2s; box-shadow: 0 4px 6px -1px rgba(37,211,102,0.3); }
+    .btn-wa:hover { background: #1ebd56; }
+    .redirect-note { margin-top: 14px; font-size: 13px; color: #718096; }
+    .cancel-btn { background: none; border: none; color: #2c7a7b; text-decoration: underline; cursor: pointer; font-size: 13px; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">SAHAYAK Medicine Care</div>
+    <div class="content">
+      <div class="status-icon">${icon}</div>
+      <div class="badge">${action}</div>
+      <h2>${title}</h2>
+      <p>${statusText}</p>
+      ${medicineName ? `
+      <div class="details">
+        ${patientName ? `<div class="details-row"><span class="details-label">Patient:</span><span class="details-val">${patientName}</span></div>` : ''}
+        <div class="details-row"><span class="details-label">Medicine:</span><span class="details-val">${medicineName} ${dosage ? `(${dosage})` : ''}</span></div>
+        <div class="details-row"><span class="details-label">Recorded:</span><span class="details-val">Just now</span></div>
+        ${late ? '<div class="details-row"><span class="details-label">Note:</span><span class="details-val" style="color:#d69e2e">Late response (alert already sent)</span></div>' : ''}
+      </div>` : ''}
+      <a id="wa-link" href="${waUrl}" class="btn-wa">
+        <span>💬 Return to WhatsApp (7987237184)</span>
+      </a>
+      <div class="redirect-note" id="redirect-msg">
+        Redirecting to WhatsApp in <strong id="countdown">4</strong> seconds...
+      </div>
+      <button class="cancel-btn" id="cancel-btn" onclick="cancelRedirect()">Stay on this page</button>
+    </div>
+  </div>
+  <script>
+    let seconds = 4;
+    let timer = setInterval(() => {
+      seconds--;
+      const cd = document.getElementById('countdown');
+      if (cd) cd.textContent = seconds;
+      if (seconds <= 0) {
+        clearInterval(timer);
+        window.location.href = '${waUrl}';
+      }
+    }, 1000);
+    function cancelRedirect() {
+      clearInterval(timer);
+      const msg = document.getElementById('redirect-msg');
+      if (msg) msg.textContent = 'Auto-redirect cancelled. You can return to WhatsApp anytime with the button above.';
+      const btn = document.getElementById('cancel-btn');
+      if (btn) btn.style.display = 'none';
+    }
+  </script>
+</body>
+</html>`;
+}
+
+export function renderResponseErrorHtml(errorMsg, whatsappNumber) {
+  const cleanPhone = String(whatsappNumber || '917987237184').replace(/[^\d]/g, '');
+  const waUrl = `https://wa.me/${cleanPhone}`;
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Response Status | SAHAYAK</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: #f0f4f8; color: #2d3748; display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 16px; }
+    .card { background: #ffffff; max-width: 440px; width: 100%; border-radius: 16px; box-shadow: 0 10px 25px -5px rgba(0,0,0,0.1); overflow: hidden; text-align: center; padding: 32px 24px; }
+    .header { font-size: 20px; font-weight: 700; color: #2c7a7b; margin-bottom: 20px; }
+    .icon { font-size: 48px; margin-bottom: 12px; }
+    h2 { font-size: 20px; font-weight: 700; color: #e53e3e; margin-bottom: 8px; }
+    p { font-size: 14px; color: #4a5568; line-height: 1.5; margin-bottom: 24px; }
+    .btn-wa { display: flex; align-items: center; justify-content: center; width: 100%; padding: 12px; border-radius: 8px; background: #25D366; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; }
+    .btn-wa:hover { background: #1ebd56; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">SAHAYAK Medicine Care</div>
+    <div class="icon">ℹ️</div>
+    <h2>Notice</h2>
+    <p>${errorMsg || 'This response link has already been used or expired.'}</p>
+    <a href="${waUrl}" class="btn-wa">Return to WhatsApp</a>
+  </div>
+</body>
+</html>`;
+}
+
+export async function handlePatientResponse(req, res) {
+  const result = await processResponse(req.params.token, 'link');
+  const prefersHtml = req.headers['accept']?.includes('text/html') && !req.headers['accept']?.includes('application/json');
+
+  if (!result.ok) {
+    if (prefersHtml) {
+      return res.status(result.status || 400).send(renderResponseErrorHtml(result.error, config.defaultWhatsappPhone));
+    }
+    return res.status(result.status).json({ error: result.error });
+  }
+
+  const message = result.action === 'TAKEN'
+    ? 'Thank you! Your medicine has been marked as TAKEN.'
+    : 'Recorded. Your family members have been notified that the medicine was NOT taken.';
+
+  if (prefersHtml) {
+    return res.send(renderResponseSuccessHtml({
+      action: result.action,
+      late: result.late,
+      doseId: result.doseId,
+      message,
+      patientName: result.patientName,
+      medicineName: result.medicineName,
+      dosage: result.dosage,
+      whatsappNumber: config.defaultWhatsappPhone,
+    }));
+  }
+
+  res.json({
+    ok: true, action: result.action, late: result.late,
+    familyNotified: result.familyNotified ?? 0,
+    message,
+  });
+}
 
 export function buildRouter() {
   const r = express.Router();
@@ -46,8 +200,11 @@ export function buildRouter() {
     const missed = db.prepare("SELECT COUNT(*) AS c FROM doses WHERE status IN ('NOT_TAKEN','NO_RESPONSE')").get().c;
     const unconfirmed = db.prepare("SELECT COUNT(*) AS c FROM doses WHERE status = 'AWAITING_RESPONSE'").get().c;
     const notifications = db.prepare(
-      `SELECT id, kind, recipient_phone, status, mode, created_at FROM notification_logs
-       ORDER BY created_at DESC LIMIT 10`).all();
+      `SELECT id, kind, recipient_phone, status, mode, body, created_at FROM notification_logs
+       ORDER BY created_at DESC LIMIT 10`).all().map(n => ({
+      ...n,
+      whatsapp_url: buildWhatsappUrl(n.recipient_phone, n.body || ''),
+    }));
     res.json({
       activePatients: patients, linkedFamily: family, upcomingReminders: upcoming,
       medicinesTaken: taken, missedOrUnconfirmed: missed, awaitingResponse: unconfirmed,
@@ -437,7 +594,11 @@ export function buildRouter() {
     if (dose_status) { clauses.push('d.status = ?'); params.push(String(dose_status)); }
     if (clauses.length) sql += ' WHERE ' + clauses.join(' AND ');
     sql += ' ORDER BY n.created_at DESC LIMIT 300';
-    res.json(db.prepare(sql).all(...params));
+    const rows = db.prepare(sql).all(...params).map(r => ({
+      ...r,
+      whatsapp_url: buildWhatsappUrl(r.recipient_phone, r.body || ''),
+    }));
+    res.json(rows);
   });
 
   r.get('/audit', requireAuth, (req, res) => {
@@ -479,9 +640,22 @@ export function buildRouter() {
 
   r.get('/doses', requireAuth, (req, res) => {
     const db = getDb();
-    res.json(db.prepare(
-      `SELECT d.*, p.full_name AS patient_name FROM doses d
-       JOIN patients p ON p.id = d.patient_id ORDER BY d.scheduled_at_utc DESC LIMIT 100`).all());
+    const rows = db.prepare(
+      `SELECT d.*, p.full_name AS patient_name, p.phone AS patient_phone FROM doses d
+       JOIN patients p ON p.id = d.patient_id ORDER BY d.scheduled_at_utc DESC LIMIT 100`).all();
+    res.json(rows.map(d => {
+      const tokens = db.prepare('SELECT action, token FROM response_tokens WHERE dose_id = ?').all(d.id);
+      let takenUrl = '', notTakenUrl = '';
+      for (const t of tokens) {
+        if (t.action === 'TAKEN') takenUrl = `${config.publicBaseUrl}/respond/${t.token}`;
+        if (t.action === 'NOT_TAKEN') notTakenUrl = `${config.publicBaseUrl}/respond/${t.token}`;
+      }
+      const reminderText = `Hello ${d.patient_name}, reminder: please take ${d.medicine_name} (${d.dosage}).\n\nConfirm dose:\n✅ TAKEN: ${takenUrl}\n❌ NOT TAKEN: ${notTakenUrl}`;
+      return {
+        ...d,
+        whatsapp_url: buildWhatsappUrl(d.patient_phone, reminderText),
+      };
+    }));
   });
 
   // ---------- Settings & integrations ----------
@@ -496,6 +670,7 @@ export function buildRouter() {
       },
       mode: getMode(),
       publicBaseUrl: config.publicBaseUrl,
+      defaultPhone: config.defaultWhatsappPhone || '+917987237184',
     });
   });
 
@@ -505,28 +680,18 @@ export function buildRouter() {
   });
 
   r.post('/settings/test-message', requireAuth, async (req, res) => {
-    const phone = String(req.body?.phone || '');
+    const phone = String(req.body?.phone || config.defaultWhatsappPhone || '+917987237184');
     if (!isValidPhone(phone)) return res.status(400).json({ error: 'Valid phone with country code required' });
     const result = await sendMessage({
       phone, kind: 'TEST_MESSAGE',
-      body: 'SAHAYAK test message: your integration is working. (This is a test, no action needed.)',
+      body: 'SAHAYAK test message: your WhatsApp integration is active and working with +917987237184. (This is a test, no action needed.)',
     });
     audit(req.admin.username, 'TEST_MESSAGE', 'whatsapp', '', phone);
     res.json(result);
   });
 
   // ---------- Public: patient response via secure link ----------
-  r.get('/respond/:token', rateLimit({ windowMs: 60_000, max: 30 }), async (req, res) => {
-    const result = await processResponse(req.params.token, 'link');
-    if (!result.ok) return res.status(result.status).json({ error: result.error });
-    res.json({
-      ok: true, action: result.action, late: result.late,
-      familyNotified: result.familyNotified ?? 0,
-      message: result.action === 'TAKEN'
-        ? 'Thank you! Your medicine has been marked as TAKEN.'
-        : 'Recorded. Your family members have been notified that the medicine was NOT taken.',
-    });
-  });
+  r.get('/respond/:token', rateLimit({ windowMs: 60_000, max: 30 }), handlePatientResponse);
 
   // Simulator response endpoint (dashboard patient-response simulator).
   r.post('/simulator/respond', requireAuth, async (req, res) => {

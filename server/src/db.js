@@ -20,6 +20,7 @@ export function getDb(dbPath = config.dbPath) {
   db.exec('PRAGMA foreign_keys = ON;');
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   db.exec(schema);
+  try { db.exec("ALTER TABLE notification_logs ADD COLUMN body TEXT NOT NULL DEFAULT '';"); } catch {}
   attachTransactionHelper(db);
   return db;
 }
