@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Environment secrets — NEVER commit real credentials
+.env
+server/.env
+client/.env
+
+# Local database (contains patient data)
+database/*.db
+database/*.db-wal
+database/*.db-shm
+
+# Build output
+client/dist/
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/

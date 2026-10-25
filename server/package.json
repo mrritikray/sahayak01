@@ -1,0 +1,25 @@
+{
+  "name": "sahayak-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SAHAYAK backend — Express API, SQLite storage, scheduler, WhatsApp Cloud API integration",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/seed.js",
+    "seed:reset": "node src/seed.js --reset",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "luxon": "^3.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "supertest": "^7.0.0",
+    "vitest": "^2.1.8"
+  }
+}
