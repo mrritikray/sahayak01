@@ -313,3 +313,29 @@ describe('scheduler recovery after restart', () => {
     expect(dose.reminder_attempts).toBeGreaterThanOrEqual(1);
   });
 });
+
+describe('whatsapp direct integration & redirection', () => {
+  it('formats 10-digit number 7987237184 with country code 91 for wa.me link', async () => {
+    const { toWhatsappPhone, buildWhatsappUrl } = await import('../src/util.js');
+    expect(toWhatsappPhone('7987237184')).toBe('917987237184');
+    expect(toWhatsappPhone('+917987237184')).toBe('917987237184');
+    const url = buildWhatsappUrl('7987237184', 'Hello test');
+    expect(url).toBe('https://wa.me/917987237184?text=Hello%20test');
+  });
+
+  it('renders a friendly HTML confirmation page with WhatsApp return link when browser opens response token', async () => {
+    const db = getDb();
+    const sched = await createSchedule({ start_date: '2026-01-08', medicine_name: 'HtmlMed' });
+    const doseId = await makeDose(sched.body.id);
+    const tok = db.prepare("SELECT token FROM response_tokens WHERE dose_id = ? AND action = 'TAKEN'").get(doseId);
+
+    const res = await request(app)
+      .get(`/api/respond/${tok.token}`)
+      .set('Accept', 'text/html');
+
+    expect(res.status).toBe(200);
+    expect(res.text).toContain('SAHAYAK Medicine Care');
+    expect(res.text).toContain('Return to WhatsApp (7987237184)');
+    expect(res.text).toContain('https://wa.me/917987237184');
+  });
+});

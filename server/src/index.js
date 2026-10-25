@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { getDb, getSetting, setSetting } from './db.js';
 import { ensureAdmin } from './auth.js';
-import { buildRouter } from './routes.js';
+import { buildRouter, handlePatientResponse } from './routes.js';
 import { startScheduler, stopScheduler } from './workflow.js';
 import { seed } from './seed.js';
 
@@ -18,6 +18,10 @@ seed(); // no-op if data already present (use "npm run seed:reset" to re-seed)
 
 const app = express();
 app.disable('x-powered-by');
+
+// Root response route for patient confirmation links (e.g. http://localhost:4000/respond/:token)
+app.get('/respond/:token', handlePatientResponse);
+
 app.use('/api', buildRouter());
 
 // 2. Serve the built frontend (production mode / VS Code single-server run).

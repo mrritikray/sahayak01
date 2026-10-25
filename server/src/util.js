@@ -7,16 +7,39 @@ export function randomToken() {
   return crypto.randomBytes(32).toString('base64url');
 }
 
-/** Normalise phone to digits with leading +, e.g. "+919812345678". */
+/** Normalise phone to digits with leading +, e.g. "+919812345678".
+ * If an Indian 10-digit number is provided without country code (e.g. 7987237184),
+ * prepend +91 automatically.
+ */
 export function normalisePhone(raw) {
-  const digits = String(raw).replace(/[^\d]/g, '');
-  return digits ? '+' + digits : '';
+  let digits = String(raw || '').replace(/[^\d]/g, '');
+  if (!digits) return '';
+  if (digits.length === 11 && digits.startsWith('0')) {
+    digits = '91' + digits.slice(1);
+  } else if (digits.length === 10) {
+    digits = '91' + digits;
+  }
+  return '+' + digits;
 }
 
 /** Basic E.164-ish validation: 8–15 digits after the +. */
 export function isValidPhone(raw) {
   const p = normalisePhone(raw);
   return /^\+\d{8,15}$/.test(p);
+}
+
+/** Format phone for WhatsApp Click-to-Chat (wa.me) URL: digits only, country code required. */
+export function toWhatsappPhone(raw) {
+  const normalised = normalisePhone(raw);
+  return normalised.replace(/[^\d]/g, '');
+}
+
+/** Generate a direct WhatsApp Click-to-Chat / wa.me deep-link URL. */
+export function buildWhatsappUrl(phone, text = '') {
+  const clean = toWhatsappPhone(phone);
+  if (!clean) return '';
+  const encoded = encodeURIComponent(String(text || '').trim());
+  return encoded ? `https://wa.me/${clean}?text=${encoded}` : `https://wa.me/${clean}`;
 }
 
 /**

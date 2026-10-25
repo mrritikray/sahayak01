@@ -1,12 +1,13 @@
 import { getDb, nowIso, setSetting, getSetting } from './db.js';
 import { whatsappConfigured, config } from './config.js';
-import { renderTemplate } from './util.js';
+import { renderTemplate, buildWhatsappUrl } from './util.js';
 
 /**
  * WhatsApp messaging layer.
  *
  * - DEMO mode (no credentials): simulated messages, clearly labelled,
- *   never claims a real send.
+ *   never claims a real send. Generates direct WhatsApp deep links (wa.me)
+ *   so messages can be sent/viewed in WhatsApp with 1-click.
  * - LIVE mode (WHATSAPP_ACCESS_TOKEN + WHATSAPP_PHONE_NUMBER_ID set):
  *   official Meta WhatsApp Cloud API. Real failures surface as errors.
  *
@@ -23,8 +24,12 @@ export function getMode() {
 
 export function integrationStatus() {
   const wa = config.whatsapp;
+  const defaultPhone = config.defaultWhatsappPhone || '+917987237184';
   return {
     mode: getMode(),
+    defaultPhone,
+    directRedirection: true,
+    directWhatsappUrl: buildWhatsappUrl(defaultPhone, 'Hello from SAHAYAK! WhatsApp integration is active.'),
     accessTokenPresent: Boolean(wa.accessToken),
     phoneNumberIdPresent: Boolean(wa.phoneNumberId),
     wabaIdPresent: Boolean(wa.wabaId),
@@ -118,13 +123,15 @@ export async function sendMessage({ phone, body, kind, doseId = 0, patientId = 0
     }
   }
 
+  const whatsappUrl = buildWhatsappUrl(phone, rendered);
+
   const info = db.prepare(
     `INSERT INTO notification_logs (dose_id, patient_id, family_id, kind, recipient_phone,
-       message_id, status, error, mode, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(doseId, patientId, familyId, kind, phone, messageId, status, error, mode, nowIso());
+       message_id, status, error, mode, body, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(doseId, patientId, familyId, kind, phone, messageId, status, error, mode, rendered, nowIso());
 
-  return { logId: Number(info.lastInsertRowid), messageId, status, mode, error };
+  return { logId: Number(info.lastInsertRowid), messageId, status, mode, error, whatsappUrl, body: rendered, phone };
 }
 
 /** Update delivery/read/failed status from a Meta webhook status event. */
